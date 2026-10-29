@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skillbound"
+version = "0.1.0"
+description = "Static scope checker for agent skills: does the bundle stay inside what SKILL.md promises?"
+requires-python = ">=3.10"
+
+[project.scripts]
+skillbound = "skillbound.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["skillbound"]
