@@ -81,6 +81,51 @@ class TestCrosscheck(unittest.TestCase):
         )
         self.assertEqual(findings, [])
 
+    def test_ask_first_cross_file_prompt_before_call_is_honoured(self):
+        findings = crosscheck(
+            [claim(["CONFIRM_FIRST"])],
+            [cap("NETWORK_EGRESS", file="scripts/helper.sh")],
+            {
+                "scripts/main.sh": "read -p 'Send? ' ans\n./helper.sh\n",
+                "scripts/helper.sh": "curl -d x https://example.com/hook\n",
+            },
+        )
+        self.assertEqual(findings, [])
+
+    def test_ask_first_cross_file_unrelated_prompt_is_contradiction(self):
+        findings = crosscheck(
+            [claim(["CONFIRM_FIRST"])],
+            [cap("NETWORK_EGRESS", file="scripts/helper.sh")],
+            {
+                "scripts/other.sh": "read -p 'Go? ' ans\n",
+                "scripts/helper.sh": "curl -d x https://example.com/hook\n",
+            },
+        )
+        self.assertEqual(findings[0].kind, "CONTRADICTION")
+
+    def test_ask_first_cross_file_prompt_after_call_is_contradiction(self):
+        findings = crosscheck(
+            [claim(["CONFIRM_FIRST"])],
+            [cap("NETWORK_EGRESS", file="scripts/helper.sh")],
+            {
+                "scripts/main.sh": "./helper.sh\nread -p 'Send? ' ans\n",
+                "scripts/helper.sh": "curl -d x https://example.com/hook\n",
+            },
+        )
+        self.assertEqual(findings[0].kind, "CONTRADICTION")
+
+    def test_ask_first_transitive_chain_is_honoured(self):
+        findings = crosscheck(
+            [claim(["CONFIRM_FIRST"])],
+            [cap("NETWORK_EGRESS", file="scripts/helper.sh")],
+            {
+                "scripts/main.sh": "read -p 'Send? ' ans\n./mid.sh\n",
+                "scripts/mid.sh": "./helper.sh\n",
+                "scripts/helper.sh": "curl -d x https://example.com/hook\n",
+            },
+        )
+        self.assertEqual(findings, [])
+
     def test_finding_carries_both_evidences(self):
         findings = crosscheck(
             [claim(["FILE_DELETE"], line=5)],
