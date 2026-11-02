@@ -9,23 +9,21 @@
 - PASS: no contradictions and no unclaimed capabilities.
 
 Ask-first claims are special: they forbid *silent* action. A sensitive
-capability in a file that itself asks for confirmation (a `read -p`,
-`input(`, or "are you sure" prompt) satisfies the claim; the same
-capability in a file with no prompt contradicts it.
+capability satisfies the claim when it is *guarded* by a confirmation
+prompt — in its own file (the v0.1 rule) or in a file that reaches it
+through the bundle's reference graph, with the prompt before the call
+(see guardgraph.py). The same capability with no guarding prompt
+contradicts the claim.
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 from .capabilities import SENSITIVE, Capability
 from .claims import CONFIRM, Claim
-
-CONFIRM_PROMPT_RE = re.compile(
-    r"(read\s+-p|input\s*\(|confirm|are you sure|press\s+enter\s+to\s+continue|yes/no)",
-    re.I,
-)
+from .guardgraph import PROMPT_RE as CONFIRM_PROMPT_RE
+from .guardgraph import guarded_files
 
 
 @dataclass
@@ -89,6 +87,7 @@ def crosscheck(
         if f.capability
     }
     ask_first_honoured: set[tuple[str, int, str]] = set()
+    guarded = guarded_files(file_texts)
     for claim in claims:
         if CONFIRM not in claim.forbids:
             continue
@@ -97,10 +96,10 @@ def crosscheck(
                 continue
             if (cap.file, cap.line, cap.category) in already_contradicted:
                 continue
-            text = file_texts.get(cap.file, "")
-            if CONFIRM_PROMPT_RE.search(text):
-                # The file asks before acting: claim honoured, and the
-                # capability is accounted for (not UNCLAIMED either).
+            if cap.file in guarded:
+                # Guarded by a prompt in this file or in a file that
+                # reaches it (prompt before the call): claim honoured,
+                # and the capability is accounted for (not UNCLAIMED).
                 ask_first_honoured.add((cap.file, cap.line, cap.category))
                 continue
             findings.append(
@@ -111,7 +110,7 @@ def crosscheck(
                     message=(
                         f"SKILL.md line {claim.line} promises to ask first, but "
                         f"{cap.file}:{cap.line} performs {cap.category} ({cap.detail}) "
-                        "with no confirmation prompt in the file"
+                        "with no confirmation prompt guarding it"
                     ),
                     claim=claim,
                     capability=cap,
