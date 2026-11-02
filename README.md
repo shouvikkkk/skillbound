@@ -41,11 +41,16 @@ skillbound check <skill-dir> [--format text|json] [--strict]
 1. **Claim extraction** — parses `SKILL.md` frontmatter (`name`,
    `description`) and body for boundary claims via negation and
    constraining patterns (`never`, `does not`, `don't`, `won't`,
-   `read-only`, `local only`, `ask first`, `confirm before`, ...).
-   Each claim maps to the capability categories it forbids and carries
-   `file:line` evidence. Text inside fenced code blocks never produces
+   `read-only`, `local only`, `ask first`, `confirm before`, ...) and
+   paraphrased promises with no negation marker ("nothing leaves this
+   machine", "stays on your machine", "runs entirely locally",
+   "stores nothing", "writes nothing to disk"). Each claim maps to
+   the capability categories it forbids and carries `file:line`
+   evidence. Text inside fenced code blocks never produces
    claims (examples are not promises); example-flavoured lines
-   ("e.g.", "for instance") are kept at low confidence.
+   ("e.g.", "for instance") are kept at low confidence. A line
+   qualified by approval ("nothing leaves this machine WITHOUT your
+   approval") is an ask-first claim, not an absolute one.
 2. **Bundle inventory** — walks the skill directory (`SKILL.md`,
    `scripts/`, `hooks.json`, `.mcp.json`, `package.json`, any
    `.sh`/`.py`/`.js` files). `SKILL.md` itself is inventoried but not
@@ -69,9 +74,12 @@ skillbound check <skill-dir> [--format text|json] [--strict]
 4. **Cross-check** — three outcomes:
    - **CONTRADICTION** (high): a claim forbids a capability the bundle
      has, with both evidences cited. Ask-first claims are special:
-     they forbid *silent* action, so a sensitive capability in a file
-     that itself asks for confirmation (`read -p`, `input()`,
-     "are you sure") honours the claim; the same capability without a
+     they forbid *silent* action, so a sensitive capability honours
+     the claim when it is *guarded* by a confirmation prompt — in its
+     own file, or in a file that reaches it through the bundle's
+     reference graph with the prompt before the call (entry script
+     prompts, helper sends: honoured, see
+     `examples/guarded-skill/`). The same capability with no guarding
      prompt contradicts it.
    - **UNCLAIMED** (medium for network/delete/secret, low otherwise):
      a sensitive capability exists with no boundary statement either way.
@@ -157,42 +165,63 @@ Verdict: CONTRADICTION (exit 2)
   are complementary: pass `skillbound` first, then sandbox-test the
   behaviour.
 
+## What's new in 0.2.0
+
+- **Paraphrase promises** — "nothing leaves this machine", "stays on
+  your machine", "runs entirely locally", "stores nothing", and
+  "writes nothing to disk" are now claims, closing the v0.1 gap where
+  a paraphrased promise read as a pass with proof.
+- **Approval-qualified lines are ask-first** — "nothing leaves this
+  machine without your approval" no longer reads as a never-sends
+  contradiction on a properly guarded skill.
+- **Cross-file ask-first guards** — a prompt in an entry script now
+  honours a capability in the helper it calls (prompt before the
+  call; transitive past that hop), fixing v0.1's false positive on
+  the most common honest layout. See `CHANGELOG.md` and
+  `examples/guarded-skill/`.
+
 ## Limitations (honest)
 
 - **Static analysis only.** It cannot reproduce the study's live-agent
   behavioural results: an agent can overreach a skill that passes this
   check, by misreading or ignoring the scope at runtime.
-- **Heuristic claim extraction.** Paraphrased promises ("we keep
-  everything on your machine", "nothing leaves this box") that don't
-  match the negation patterns are missed; a missed promise is a missed
-  contradiction, not a pass with proof.
+- **Heuristic claim extraction.** Paraphrased promises are covered by
+  pattern, not understanding: an unusual phrasing is still missed, and
+  a missed promise is a missed contradiction, not a pass with proof.
 - **Heuristic shell parsing, not a full parser.** Multi-line
   constructs, variable indirection (`$CMD`), and commands built by
   string concatenation are not followed. Python analysis is
   line-oriented after comment/docstring stripping.
-- **Ask-first detection is file-local.** A prompt in a *different*
-  file from the capability does not satisfy the claim; only a prompt
-  in the same file counts.
+- **Ask-first guards are reference-textual, not execution-proven.**
+  References are recognised by import/call syntax, so a dynamically
+  computed callee is missed; transitive hops past the first are not
+  order-checked (they run after the root prompt by construction, but
+  that is an assumption, not a proof); two files sharing a basename
+  make a reference guard all of them.
 - **SKILL.md code fences are not scanned.** An executable snippet
   embedded in the doc itself (rather than in a script file) is out of
   scope by design, to avoid flagging worked examples.
 
 ## Tests
 
-73 tests, all green:
+103 tests, all green:
 
 ```bash
 python3 -m unittest discover -s tests
 ```
 
-Coverage includes: claim extraction (negation variants, code-fence
-discounting, example-line low confidence), every capability category
-with positive and negative controls (commented-out curl is not a
-finding; `curl --version` is not egress; `rm -rf` is a delete; reading
+Coverage includes: claim extraction (negation variants, paraphrase
+promises, approval-qualified lines, code-fence discounting,
+example-line low confidence), the guard graph (shell/Python/JS/JSON
+references, prompt-before-call ordering, transitive chains, unrelated
+prompts, cycles), every capability category with positive and
+negative controls (commented-out curl is not a finding;
+`curl --version` is not egress; `rm -rf` is a delete; reading
 `~/.ssh/id_rsa` is secret access), contradiction detection end-to-end
 on synthetic fixtures (read-only + curl, analysis-only + rm,
-ask-first + silent POST, clean skill → PASS), JSON output shape, and
-exit codes including `--strict`.
+ask-first + silent POST, cross-file guarded POST → PASS, clean
+skill → PASS), JSON output shape, and exit codes including
+`--strict`.
 
 ## License
 
