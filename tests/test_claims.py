@@ -86,6 +86,60 @@ class TestClaimExtraction(unittest.TestCase):
         doc = extract_claims("Intro line.\n\nIt never deletes files.\n")
         self.assertEqual(doc.claims[0].line, 3)
 
+    # --- v0.2.0 paraphrase promises ---
+
+    def test_nothing_leaves_machine_claim(self):
+        doc = extract_claims("Nothing leaves this machine.\n")
+        self.assertTrue(any("NETWORK_EGRESS" in c.forbids for c in doc.claims))
+
+    def test_no_data_leaves_claim(self):
+        doc = extract_claims("No data leaves your computer.\n")
+        self.assertTrue(any("NETWORK_EGRESS" in c.forbids for c in doc.claims))
+
+    def test_stays_local_claims(self):
+        for text in (
+            "Your data stays on your machine.\n",
+            "It keeps everything on your machine.\n",
+            "The skill runs entirely locally.\n",
+            "Transcription uses an on-device model.\n",
+        ):
+            doc = extract_claims(text)
+            self.assertTrue(
+                any("NETWORK_EGRESS" in c.forbids for c in doc.claims), text
+            )
+
+    def test_no_external_services_claim(self):
+        doc = extract_claims("It uses no external services.\n")
+        self.assertTrue(any("NETWORK_EGRESS" in c.forbids for c in doc.claims))
+
+    def test_stores_nothing_claim(self):
+        doc = extract_claims("This skill stores nothing.\n")
+        self.assertTrue(any("SECRET_ACCESS" in c.forbids for c in doc.claims))
+
+    def test_never_uploads_keys_claim(self):
+        doc = extract_claims("It never uploads your API keys.\n")
+        self.assertTrue(any("SECRET_ACCESS" in c.forbids for c in doc.claims))
+
+    def test_writes_nothing_claim(self):
+        doc = extract_claims("It writes nothing to disk.\n")
+        self.assertTrue(any("FILE_WRITE" in c.forbids for c in doc.claims))
+
+    def test_approval_qualified_line_is_ask_first_only(self):
+        # "Nothing leaves ... without your approval" permits sending
+        # once approved: it must NOT become a never-sends claim.
+        doc = extract_claims("Nothing leaves this machine without your approval.\n")
+        self.assertTrue(any("CONFIRM_FIRST" in c.forbids for c in doc.claims))
+        self.assertFalse(any("NETWORK_EGRESS" in c.forbids for c in doc.claims))
+
+    def test_sends_only_after_approval_is_ask_first_only(self):
+        doc = extract_claims("It sends the report only after your approval.\n")
+        self.assertTrue(any("CONFIRM_FIRST" in c.forbids for c in doc.claims))
+        self.assertFalse(any("NETWORK_EGRESS" in c.forbids for c in doc.claims))
+
+    def test_storing_a_key_is_not_a_stores_nothing_claim(self):
+        doc = extract_claims("It stores your API key in ~/.config for reuse.\n")
+        self.assertFalse(any("SECRET_ACCESS" in c.forbids for c in doc.claims))
+
 
 if __name__ == "__main__":
     unittest.main()
